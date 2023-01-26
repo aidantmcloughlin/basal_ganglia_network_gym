@@ -16,7 +16,7 @@ import gym
 from gym import spaces
 from matplotlib import pyplot as plt
 import seaborn as sns
-import rl_modules.envs.bg_network.utils as utils
+import env.bg_network.utils as utils
 import gc
 from pyNN import space
 
@@ -1024,7 +1024,7 @@ class BGNetwork(gym.Env):
         ## load predictor model, if specified
         if self.predictor_loc != "":
             pred_full_loc=[file for file in glob.iglob(
-                os.getcwd()+ "/**/"+self.predictor_loc, recursive=True)]
+                os.getcwd() + "/**/"+self.predictor_loc, recursive=True)]
             assert(len(pred_full_loc) == 1) ## unambiguous file location?
             with open(pred_full_loc[0], 'rb') as f:
                 self.pd_predictor = pkl.load(f)

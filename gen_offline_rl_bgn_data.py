@@ -5,99 +5,15 @@ import gym
 from scipy.stats import norm
 from matplotlib import pyplot as plt
 
-from rl_modules.envs import register_envs
+from env import register_envs
 
 ## Register environments and initialize PD, non-PD networks.
 register_envs()
 
-### Function to create data sets
-def genOfflinePeriodicData(
-    bg_network,
-    time_of_stim = 20000,
-    no_stim_time = 20000,
-    single_stim_period = 600, ## dt
-    stim_sd_frac_of_max_stim = 0.5, ## what fraction of max stim amp should Gaussian sample sd be?
-    df_file_name="sim_output/offline_data_periodic_onoff_stim.csv"):
 
-    pulse_len = int(round(bg_network.dbs_pulse_len/bg_network.dt, 0))
-    ### Create arrays of when stimulation are occuring
-    stim_begs = np.arange(
-        bg_network.psd_dt_window + no_stim_time,
-        bg_network.psd_dt_window + no_stim_time + time_of_stim,
-        single_stim_period)
-    stim_ends = np.arange(
-        bg_network.psd_dt_window + no_stim_time + pulse_len,
-        bg_network.psd_dt_window + no_stim_time + time_of_stim,
-        single_stim_period)
-
-    stim_ranges = [[stim_begs[i], stim_ends[i]] for i in range(len(stim_begs))]
-    ### Runs simulation and computes/collects state history variables for time_past_warmup // step_time steps.
-    bg_network.reset()
-    
-    in_stim_range = False
-    while bg_network.time <= int(bg_network.psd_dt_window + no_stim_time + time_of_stim):
-        in_stim_range_new = np.sum([bg_network.time >= r[0] and bg_network.time <= r[1] for r in stim_ranges]) > 0
-        if in_stim_range_new != in_stim_range:
-            print("Stimulation is switching on or off")
-        in_stim_range = in_stim_range_new
-
-        if in_stim_range:
-            action = np.clip(
-                norm.rvs(scale = bg_network.ac_high[0] * stim_sd_frac_of_max_stim), ## scale keyword is the standard deviation.
-                -bg_network.ac_high[0], 
-                bg_network.ac_high[0])
-        else:
-            action = 0
-
-        obs, rew, done, info = bg_network.step(action)
-
-    save_res_to_df(bg_network, df_file_name=df_file_name)
-
-
-
-#### Continuous version  
-def genOfflineCtsData(
-    bg_network,
-    no_stim_time = 10000,
-    time_past_warmup = 100000,
-    stim_duration = 9000,
-    no_stim_duration = 1000,
-    stim_sd_frac_of_max_stim = 0.25,
-    df_file_name="sim_output/offline_data_cts_onoff_stim.csv"):
-
-    ### Create arrays of when stimulation are occuring
-    stim_begs = np.arange(
-        bg_network.psd_dt_window + no_stim_time, 
-        bg_network.psd_dt_window + time_past_warmup, stim_duration + no_stim_duration)
-    stim_ends = np.arange(
-        bg_network.psd_dt_window + no_stim_time + stim_duration, 
-        bg_network.psd_dt_window + time_past_warmup, stim_duration + no_stim_duration)
-    if len(stim_ends) == len(stim_begs)-1:
-        stim_ends = np.concatenate((stim_ends, [bg_network.psd_dt_window + time_past_warmup]))
-    stim_ranges = [[stim_begs[i], stim_ends[i]] for i in range(len(stim_begs))]
-    ### Runs simulation and computes/collects state history variables for time_past_warmup // step_time steps.
-    bg_network.reset()
-    
-    in_stim_range = False
-    while bg_network.time <= int(bg_network.psd_dt_window+time_past_warmup):
-        in_stim_range_new = np.sum([bg_network.time >= r[0] and bg_network.time <= r[1] for r in stim_ranges]) > 0
-        if in_stim_range_new != in_stim_range:
-            print("Stimulation is switching on or off")
-        in_stim_range = in_stim_range_new
-
-        if in_stim_range:
-            action = np.clip(
-                norm.rvs(scale = bg_network.ac_high[0] * stim_sd_frac_of_max_stim), ## scale keyword is the standard deviation.
-                -bg_network.ac_high[0], 
-                bg_network.ac_high[0])
-        else:
-            action = 0
-
-        obs, rew, done, info = bg_network.step(action)
-
-    save_res_to_df(bg_network, df_file_name=df_file_name)
-
-
+##### =========================================================================
+### Helper Functions ==========================================================
+##### =========================================================================
 
 def save_res_to_df(bg_network, df_file_name="sim_output/offline_data_periodic_stim.csv"):
     ### Save the state history dataframe.
@@ -116,7 +32,7 @@ def save_res_to_df(bg_network, df_file_name="sim_output/offline_data_periodic_st
         columns=np.concatenate((init_col_names, bg_network.state_names)))
     
     full_history.to_csv(df_file_name)
-    
+
 
 def special_plot_region_potentials(
         bg_network, dt_range = None, 
@@ -182,91 +98,189 @@ def special_plot_region_potentials(
 
 
 
-if __name__ == "__main__":
-    TMAX=5000 ## how long (including warm-up of 2,000 ms, which is the spectral feature computation window size, to run an episode?)
-    NEURONS=10
-    SEED=1
-    DT=0.01
-    STIMULATE=False
-    CREATE_PLOTS=True
-    MILLISEC_OF_DATA_COLLECT = 2000
-    TIME_PAST_WARMUP = int(MILLISEC_OF_DATA_COLLECT * 1/DT)
 
-    ### TODO: full run of the script has no commented-out lines in the below section....
+
+
+##### =========================================================================
+### Function to create PERIODIC STIMULATION data sets =========================
+##### =========================================================================
+
+def genOfflinePeriodicData(
+    bg_network,
+    no_stim_time = 10000,
+    time_of_stim = 20000,
+    single_stim_period = 200, ## dt
+    stim_sd_frac_of_max_stim = 0.5, 
+    df_file_name = "sim_output/offline_data_periodic_onoff_stim.csv"):
+    '''
+    bg_network: instance of class 'BGNetwork'
+    no_stim_time: (UNIT: DT) How long (after simulation warmup) until stimulation begins.  Produces some "null" data for the offline data set.
+    time_of_stim: (UNIT: DT) How long (after simulation warmup and no_stim_time) to run stimulation
+    single_stim_period: (UNIT: DT) How much time between (single) stimulation pulses?
+    stim_sd_frac_of_max_stim: what fraction of max stim amp should Gaussian sample sd be?
+    df_file_name: file name (and relative path) to store the offline state-reward history dataframe.
+    '''
+
+
+    pulse_len = int(round(bg_network.dbs_pulse_len/bg_network.dt, 0))
+    ### Create arrays of when stimulation are occuring
+    stim_begs = np.arange(
+        bg_network.psd_dt_window + no_stim_time,
+        bg_network.psd_dt_window + no_stim_time + time_of_stim,
+        single_stim_period)
+    stim_ends = np.arange(
+        bg_network.psd_dt_window + no_stim_time + pulse_len,
+        bg_network.psd_dt_window + no_stim_time + time_of_stim,
+        single_stim_period)
+
+    stim_ranges = [[stim_begs[i], stim_ends[i]] for i in range(len(stim_begs))]
+    ### Runs simulation and computes/collects state history variables for time_past_warmup // step_time steps.
+    bg_network.reset()
+    
+    in_stim_range = False
+    while bg_network.time <= int(bg_network.psd_dt_window + no_stim_time + time_of_stim):
+        in_stim_range_new = np.sum([bg_network.time >= r[0] and bg_network.time < r[1] for r in stim_ranges]) > 0
+        if in_stim_range_new != in_stim_range:
+            print("Stimulation is switching on or off")
+        in_stim_range = in_stim_range_new
+
+        if in_stim_range:
+            action = np.clip(
+                norm.rvs(scale = bg_network.ac_high[0] * stim_sd_frac_of_max_stim), 
+                -bg_network.ac_high[0], 
+                bg_network.ac_high[0])
+        else:
+            action = 0
+
+        obs, rew, done, info = bg_network.step(action)
+
+    save_res_to_df(bg_network, df_file_name=df_file_name)
+
+
+
+##### =========================================================================
+### Function to create CONTINUOUS STIMULATION data sets =======================
+##### =========================================================================
+
+def genOfflineCtsData(
+    bg_network,
+    no_stim_time = 10000,
+    time_of_stim = 20000,
+    stim_duration = 9000,
+    no_stim_duration = 1000,
+    stim_sd_frac_of_max_stim = 0.25,
+    df_file_name = "sim_output/offline_data_cts_onoff_stim.csv"):
+
+    '''
+    bg_network: instance of class 'BGNetwork'
+    no_stim_time: (UNIT: DT) How long (after simulation warmup) until stimulation begins.  Produces some "null" data for the offline data set.
+    time_of_stim: (UNIT: DT) How long (after simulation warmup and no_stim_time) to run stimulation
+    stim_duration: (UNIT: DT) How long are the on-stimulation periods?
+    no_stim_duration: (UNIT: DT) How long are the off-stimulation periods?
+    stim_sd_frac_of_max_stim: what fraction of max stim amp should Gaussian sample sd be?
+    df_file_name: file name (and relative path) to store the offline state-reward history dataframe.
+    '''
+
+    ### Create arrays of when stimulation are occuring
+    stim_begs = np.arange(
+        bg_network.psd_dt_window + no_stim_time, 
+        bg_network.psd_dt_window + no_stim_time + time_of_stim, stim_duration + no_stim_duration)
+    stim_ends = np.arange(
+        bg_network.psd_dt_window + no_stim_time + stim_duration, 
+        bg_network.psd_dt_window + no_stim_time + time_of_stim, stim_duration + no_stim_duration)
+    if len(stim_ends) == len(stim_begs)-1:
+        stim_ends = np.concatenate((stim_ends, [bg_network.psd_dt_window + no_stim_time + time_of_stim]))
+    stim_ranges = [[stim_begs[i], stim_ends[i]] for i in range(len(stim_begs))]
+    
+    bg_network.reset()
+    
+    in_stim_range = False
+    while bg_network.time <= int(bg_network.psd_dt_window + no_stim_time + time_of_stim):
+        in_stim_range_new = np.sum([bg_network.time >= r[0] and bg_network.time <= r[1] for r in stim_ranges]) > 0
+        if in_stim_range_new != in_stim_range:
+            print("Stimulation is switching on or off")
+        in_stim_range = in_stim_range_new
+
+        if in_stim_range:
+            action = np.clip(
+                norm.rvs(scale = bg_network.ac_high[0] * stim_sd_frac_of_max_stim), ## scale keyword is the standard deviation.
+                -bg_network.ac_high[0], 
+                bg_network.ac_high[0])
+        else:
+            action = 0
+
+        obs, rew, done, info = bg_network.step(action)
+
+    save_res_to_df(bg_network, df_file_name=df_file_name)
+    
+
+
+##### =========================================================================
+### ACTUAL SIMULATION RUN =====================================================
+##### =========================================================================
+
+if __name__ == "__main__":
+    TMAX=5000 ## (UNIT: Millisecond) how long (including warm-up of 2,000 ms, which is the spectral feature computation window size, to run an episode?)
+        ## In essence, an RL agent would stop stimulating the model and "reset" the simulation at this time.
+    NEURONS=10 ## How many neurons per region? Recommended 10
+    SEED=1 ## ensure reproducibility or check stability by changing the seed.
+    DT=0.01 ## Length of time step for differential equations (in miliseconds)
+
+    ### Example One:  periodic (on, off) stimulation ==========================
 
     ## Make environment
-    # pd_bg_network = gym.make(
-    #     'bg-network-v0',
-    #     n=NEURONS, 
-    #     tmax=TMAX, 
-    #     dt=DT, 
-    #     has_pd=True,
-    #     predictor_loc = "predictors/bgn_rf_model.pkl",
-    #     seed=SEED,
-    #     fig_loc = "docs/sim_doc/figures/")
-
-    # genOfflinePeriodicData(
-    #     pd_bg_network,
-    #     time_of_stim = 190000,
-    #     no_stim_time = 10000,
-    #     single_stim_period = 600, ## dt
-    # )
-
-    # special_plot_region_potentials(
-    #     pd_bg_network, 
-    #     dt_range = [200000, 240000], 
-    #     dbs_mult = 5e-2,
-    #     plot_name_tag = "on_off_stim_", 
-    #     save=True, )
-
-    # ## Make environment
     pd_bg_network = gym.make(
         'bg-network-v0',
         n=NEURONS, 
         tmax=TMAX, 
         dt=DT, 
         has_pd=True,
-        predictor_loc = "predictors/bgn_rf_model.pkl",
+        predictor_loc = "predictors/set_bgn_rf_model.pkl", ## Location of Random forest predictor.
         seed=SEED,
-        fig_loc = "docs/sim_doc/figures/")
+        fig_loc = "docs/sim_doc/figures/" ## Where to store figures (by default)
+        )
 
-    genOfflineCtsData(
+    genOfflinePeriodicData(
         pd_bg_network,
-        no_stim_time = 10000,
-        time_past_warmup = 100000,
-        stim_duration = 9000,
-        no_stim_duration = 1000,
-        stim_sd_frac_of_max_stim = 0.25,)
+        no_stim_time = 10000, ## (UNIT: DT) How long (after simulation warmup) until stimulation begins.  Produces some "null" data for the offline data set.
+        time_of_stim = 90000, ## (UNIT: DT) How long (after simulation warmup and no_stim_time) to run stimulation
+        single_stim_period = 400, ## (UNIT: DT) How much time between (single) stimulation pulses?
+    )
 
+    ### Plot the simulation results:
     special_plot_region_potentials(
         pd_bg_network, 
-        dt_range = [200000, 240000], 
-        dbs_mult = 5e-2,
-        plot_name_tag = "cts_stim_quartermaxsd_", 
+        dt_range = [200000, 240000], ## Time range (in DT) to plot. 
+        dbs_mult = 5e-2, ## Scaling factor of DBS stimulation so that it will plot well.
+        plot_name_tag = "on_off_stim_", 
         save=True, )
 
-    # no_pd_bg_network = gym.make(
+    ### Example Two:  continuous stimulation ==========================
+
+    # ## Make environment
+    # pd_bg_network = gym.make(
     #     'bg-network-v0',
     #     n=NEURONS, 
     #     tmax=TMAX, 
     #     dt=DT, 
-    #     has_pd=False,
-    #     predictor_loc = "",
+    #     has_pd=True,
+    #     predictor_loc = "predictors/set_bgn_rf_model.pkl", ## Location of Random forest predictor.
     #     seed=SEED,
-    #     fig_loc = "docs/sim_doc/figures/")
+    #     fig_loc = "docs/sim_doc/figures/" ## Where to store figures (by default)
+    #     )
 
-    # no_pd_bg_network.reset()
+    # genOfflineCtsData(
+    #     pd_bg_network,
+    #     no_stim_time = 10000, ## (UNIT: DT) How long (after simulation warmup) until stimulation begins.  Produces some "null" data for the offline data set.
+    #     time_of_stim = 90000, ## (UNIT: DT) How long (after simulation warmup and no_stim_time) to run stimulation
+    #     stim_duration = 9000, ## (UNIT: DT) How long is a single stimulation period?
+    #     no_stim_duration = 1000, ## (UNIT: DT) How long is 
+    #     stim_sd_frac_of_max_stim = 0.25,)
 
+    # ### Plot the simulation results:
     # special_plot_region_potentials(
-    #     no_pd_bg_network, 
-    #     dt_range = [100000, 160000], 
+    #     pd_bg_network, 
+    #     dt_range = [200000, 204000], 
     #     dbs_mult = 5e-2,
-    #     plot_dbs=False,
-    #     plot_name_tag = "no_dbs_no_pd_", 
+    #     plot_name_tag = "cts_stim_quartermaxsd_", 
     #     save=True, )
-    
-
-        
-
-
-    

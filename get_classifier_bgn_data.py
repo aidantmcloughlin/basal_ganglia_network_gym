@@ -4,7 +4,7 @@ import pandas as pd
 import gym
 from scipy.stats import norm
 
-from rl_modules.envs import register_envs
+from env import register_envs
 
 ## Register environments and initialize PD, non-PD networks.
 register_envs()
